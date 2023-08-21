@@ -40,7 +40,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var direction = (camera.view * vec4<f32>(normalize(targetPoint.xyz / targetPoint.w), 0.)).xyz;
 
     var ray = Ray(origin, direction);
-    let lightDir = normalize(vec3<f32>(1., 2., -0.7));
+    //let lightDir = normalize(vec3<f32>(1., 2., -0.7));
 
     //let box = intersectBox(ray, lightDir);
     //let sphere = intersectSphere(ray, lightDir);
@@ -56,9 +56,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     //return vec4<f32>(closest.xyz, 0.0);
     let dda = dda(ray);
-    if dda.w == 1.0 { return dda(ray); }
-    let plane = intersectPlane(ray);
-    if plane.w != 0. { return vec4f(plane.xyz, 1.0); }
+    if dda.w == 1.0 { return dda; }
+    //let rm = raymarch(ray);
+    //if rm.w == 1.0 { return rm; }
+    //let plane = intersectPlane(ray);
+    //if plane.w != 0. { return vec4<f32>(plane.xyz, 1.0); }
     return vec4<f32>(.1, .2, .3, 1.);
 }
 
@@ -155,64 +157,70 @@ fn intersectPlane(r: Ray) -> vec4<f32> {
 }
 
 fn dda(r: Ray) -> vec4<f32> {
+    var direction = normalize(r.direction);
+    if direction.x == 0. { direction.x = 0.001; }
+    if direction.y == 0. { direction.y = 0.001; }
+    if direction.z == 0. { direction.z = 0.001; }
 
-    var mapPos = vec3i(floor(r.origin + 0.));
-    var deltaDist = 1. / abs(r.direction);
-    var rayStep = vec3i(sign(r.direction));
-    var sideDist = vec3f(sign(r.direction) * (vec3f(mapPos) - r.origin) + (sign(r.direction) * 0.5) + 0.5) * deltaDist;
+    let raySign = vec3<i32>(sign(direction));
+    let rayPositivity = (1 + raySign) / 2;
+    let rayInverse = 1. / direction;
 
-    var mask: vec3<bool>;
-    var hit = false;
+    var gridCoords = vec3<i32>(r.origin);
+    var withinVoxelCoords = r.origin - vec3<f32>(gridCoords);
 
-    for (var i: i32 = 0; i < 64; i++) {
-        if getVoxel(mapPos) {
-            hit = true;
-            break;
+    var i = 0;
+    while i < 50 {
+        if getVoxel(gridCoords) {
+            return vec4<f32>(vec3f(abs(gridCoords)) / 100., 1.0);
         }
 
-        if sideDist.x < sideDist.y {
-            if sideDist.x < sideDist.z {
-                sideDist.x += deltaDist.x;
-                mapPos.x += rayStep.x;
-                mask = vec3<bool>(true, false, false);
-            } else {
-                sideDist.z += deltaDist.z;
-                mapPos.z += rayStep.z;
-                mask = vec3<bool>(false, false, true);
-            }
+        let t = (vec3f(rayPositivity) - withinVoxelCoords) * rayInverse;
+        var minIdx: i32;
+        if t.x < t.y {
+            if t.x < t.z {
+                minIdx = 0;
+            } else { minIdx = 2;}
         } else {
-            if sideDist.y < sideDist.z {
-                sideDist.y += deltaDist.y;
-                mapPos.y += rayStep.y;
-                mask = vec3<bool>(false, true, false);
+            if t.y < t.z {
+                minIdx = 1;
             } else {
-                sideDist.z += deltaDist.z;
-                mapPos.z += rayStep.z;
-                mask = vec3<bool>(false, false, true);
+                minIdx = 2;
             }
         }
-    }
 
-    if hit {
-        if mask.x {return vec4f(0.5, 0.5, 0.5, 1.0);}
-        if mask.y {return vec4f(0.7, 0.7, 0.7, 1.0);}
-        if mask.z {return vec4f(1.0, 1.0, 1.0, 1.0);}
+        gridCoords[minIdx] += raySign[minIdx];
+        withinVoxelCoords += direction * t[minIdx];
+        withinVoxelCoords[minIdx] = 1. - f32(rayPositivity[minIdx]);
+        i++;
     }
-    return vec4<f32>(0., 0., 0., 0.0);
+    return vec4<i32>(0.);
 }
+
+//fn raymarch(r: Ray) -> vec4<f32> {
+//    var t = 0.;
+//    while t < 100. {
+//        let p = r.origin + r.direction * t;
+//        if getVoxel(p) {
+//            return vec4<f32>(vec3<f32>(p) / 100., 1.0);
+//        }
+//        t += 1.;
+//    }
+//    return vec4<f32>(0.);
+//}
 
 fn getVoxel(c: vec3<i32>) -> bool {
-    let p = vec3f(c) + vec3f(0.5);
-    let d = min(max(-sdSphere(p, 7.5), sdBox(p, vec3(6.0))), -sdSphere(p, 25.0));
-    return d < 0.0;
+    //let p = vec3<f32>(c) + vec3<f32>(0.5);
+    //let d = min(max(-sdSphere(p, 7.5), sdBox(p, vec3(6.0))), -sdSphere(p, 25.0));
+    //return d < 0.0;
     //return abs(c.x) == abs(c.y) && abs(c.y) == abs(c.z);
     //return c.x <= 10 && c.x >= 0 && c.y <= 10 && c.y >= 0 && c.z <= 10 && c.z >= 0;
-    //return c.z == c.y * c.x;
+    return c.z == c.y * c.x;
 }
 
-fn sdSphere(p: vec3f, d: f32) -> f32 { return length(p) - d; }
+fn sdSphere(p: vec3<f32>, d: f32) -> f32 { return length(p) - d; }
 
-fn sdBox(p: vec3f, b: vec3f) -> f32 {
+fn sdBox(p: vec3<f32>, b: vec3<f32>) -> f32 {
     let d = abs(p) - b;
-    return min(max(d.x, max(d.y, d.z)), 0.0) + length(max(d, vec3f(0.0)));
+    return min(max(d.x, max(d.y, d.z)), 0.0) + length(max(d, vec3<f32>(0.0)));
 }
