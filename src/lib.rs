@@ -114,7 +114,7 @@ impl State {
             format: surface_format,
             width: size.width,
             height: size.height,
-            present_mode: wgpu::PresentMode::Fifo, //surface_caps.present_modes[0],
+            present_mode: wgpu::PresentMode::Fifo,
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
         };
@@ -125,18 +125,10 @@ impl State {
             source: wgpu::ShaderSource::Wgsl(include_str!("../assets/shaders/shader.wgsl").into()),
         });
 
-        let camera = camera::Camera::new(Vector3::new(-1.0, 3.0, -3.0), 45., 1., 100.);
-        // let projection = camera::Projection::new(
-        //     config.width,
-        //     config.height,
-        //     nalgebra::Deg(45.0),
-        //     0.01,
-        //     100.0,
-        // );
+        let camera = camera::Camera::new(Vector3::new(0.0, 2.0, -12.0), 45., 1., 100.);
         let camera_controller = camera::CameraController::new(4.0, 1.0);
 
         let camera_uniform = CameraUniform::new();
-        // camera_uniform.update_view_proj(&camera, &projection);
 
         let camera_buffer = wgpu::util::DeviceExt::create_buffer_init(
             &device,
@@ -265,10 +257,7 @@ impl State {
                         ..
                     },
                 ..
-            } => {
-                // dbg!(self.camera.position);
-                self.camera_controller.process_keyboard(*key, *state)
-            }
+            } => self.camera_controller.process_keyboard(*key, *state),
             WindowEvent::MouseInput {
                 button: MouseButton::Right,
                 state,
@@ -287,7 +276,6 @@ impl State {
                     }
                     self.window().set_cursor_visible(!self.mouse_pressed);
                 }
-                // self.mouse_pressed = *state == ElementState::Pressed;
                 true
             }
             _ => false,
