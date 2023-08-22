@@ -16,22 +16,6 @@ struct CameraUniform {
 @group(0) @binding(0)
 var<uniform> camera: CameraUniform;
 
-@vertex
-fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
-
-    var vertices = array<vec2<f32>, 3>(
-        vec2<f32>(-1., 3.),
-        vec2<f32>(-1., -1.),
-        vec2<f32>(3., -1.),
-    );
-
-    var out: VertexOutput;
-    out.coord = vertices[vertex_index];
-    out.position = vec4<f32>(out.coord, 0.0, 1.0);
-
-    return out;
-}
-
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
