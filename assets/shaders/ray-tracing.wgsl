@@ -45,7 +45,7 @@ fn dda(r: Ray) -> vec4<f32> {
     let rayPositivity = (1 + raySign) / 2;
     let rayInverse = 1. / direction;
 
-    var gridCoords = vec3<i32>(r.origin);
+    var gridCoords = vec3<i32>(floor(r.origin));
     var withinVoxelCoords = r.origin - vec3<f32>(gridCoords);
 
     var i = 0;
