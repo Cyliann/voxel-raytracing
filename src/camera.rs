@@ -176,3 +176,62 @@ impl CameraController {
         camera_unifrom.update_view(camera);
     }
 }
+
+pub struct CameraPipeline {
+    pub camera: Camera,
+    pub controller: CameraController,
+    pub uniform: CameraUniform,
+    pub buffer: wgpu::Buffer,
+    pub bind_group: wgpu::BindGroup,
+    pub bind_group_layout: wgpu::BindGroupLayout,
+}
+
+impl CameraPipeline {
+    pub fn new(device: &wgpu::Device) -> CameraPipeline {
+        let camera = Camera::new(Vector3::new(0.0, 2.0, -12.0), 45., 1., 100.);
+        let controller = CameraController::new(10.0, 1.0);
+
+        let uniform = CameraUniform::new();
+
+        let buffer = wgpu::util::DeviceExt::create_buffer_init(
+            device,
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Camera Buffer"),
+                contents: bytemuck::cast_slice(&[uniform]),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            },
+        );
+
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+            label: Some("camera_bind_group_layout"),
+        });
+
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: buffer.as_entire_binding(),
+            }],
+            label: Some("camera_bind_group"),
+        });
+
+        return CameraPipeline {
+            camera,
+            controller,
+            uniform,
+            buffer,
+            bind_group,
+            bind_group_layout,
+        };
+    }
+}

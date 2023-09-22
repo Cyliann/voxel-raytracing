@@ -50,11 +50,7 @@ struct State {
     render_pipeline: wgpu::RenderPipeline,
     render_bind_group: wgpu::BindGroup,
     window: Window,
-    camera: camera::Camera,
-    camera_controller: camera::CameraController,
-    camera_uniform: CameraUniform,
-    camera_buffer: wgpu::Buffer,
-    camera_bind_group: wgpu::BindGroup,
+    camera: camera::CameraPipeline,
     mouse_pressed: bool,
     ray_tracing_pipeline: wgpu::ComputePipeline,
     ray_tracing_bind_group: wgpu::BindGroup,
@@ -133,17 +129,10 @@ impl State {
             source: wgpu::ShaderSource::Wgsl(include_str!("../assets/shaders/frag.wgsl").into()),
         });
 
-        let (
-            camera,
-            camera_controller,
-            camera_uniform,
-            camera_buffer,
-            camera_bind_group,
-            camera_bind_group_layout,
-        ) = create_camera(&device);
+        let camera = camera::CameraPipeline::new(&device);
 
         let (ray_tracing_pipeline, ray_tracing_bind_group, sampler, color_buffer_view) =
-            create_raytrace_shader(&device, &size, camera_bind_group_layout);
+            create_raytrace_shader(&device, &size, &camera.bind_group_layout);
 
         let (render_pipeline, render_bind_group) = create_render(
             &device,
@@ -164,10 +153,6 @@ impl State {
             render_bind_group,
             window,
             camera,
-            camera_uniform,
-            camera_buffer,
-            camera_bind_group,
-            camera_controller,
             mouse_pressed: false,
             ray_tracing_pipeline,
             ray_tracing_bind_group,
@@ -180,8 +165,9 @@ impl State {
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
-            self.camera_uniform
-                .update_proj(&self.camera, new_size.width, new_size.height);
+            self.camera
+                .uniform
+                .update_proj(&self.camera.camera, new_size.width, new_size.height);
             self.size = new_size;
             self.config.width = new_size.width;
             self.config.height = new_size.height;
@@ -200,7 +186,7 @@ impl State {
                         ..
                     },
                 ..
-            } => self.camera_controller.process_keyboard(*key, *state),
+            } => self.camera.controller.process_keyboard(*key, *state),
             WindowEvent::MouseInput {
                 button: MouseButton::Right,
                 state,
@@ -226,12 +212,13 @@ impl State {
     }
 
     fn update(&mut self, dt: instant::Duration) {
-        self.camera_controller
-            .update_camera(&mut self.camera, dt, &mut self.camera_uniform);
+        self.camera
+            .controller
+            .update_camera(&mut self.camera.camera, dt, &mut self.camera.uniform);
         self.queue.write_buffer(
-            &self.camera_buffer,
+            &self.camera.buffer,
             0,
-            bytemuck::cast_slice(&[self.camera_uniform]),
+            bytemuck::cast_slice(&[self.camera.uniform]),
         );
     }
 
@@ -254,7 +241,7 @@ impl State {
 
             ray_tracing_pass.set_pipeline(&self.ray_tracing_pipeline);
             ray_tracing_pass.set_bind_group(0, &self.ray_tracing_bind_group, &[]);
-            ray_tracing_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+            ray_tracing_pass.set_bind_group(1, &self.camera.bind_group, &[]);
             ray_tracing_pass.dispatch_workgroups(self.size.width / 8, self.size.height / 8, 1);
         }
         {
@@ -291,68 +278,10 @@ impl State {
     }
 }
 
-fn create_camera(
-    device: &wgpu::Device,
-) -> (
-    camera::Camera,
-    camera::CameraController,
-    CameraUniform,
-    wgpu::Buffer,
-    wgpu::BindGroup,
-    wgpu::BindGroupLayout,
-) {
-    let camera = camera::Camera::new(Vector3::new(0.0, 2.0, -12.0), 45., 1., 100.);
-    let camera_controller = camera::CameraController::new(10.0, 1.0);
-
-    let camera_uniform = CameraUniform::new();
-
-    let camera_buffer = wgpu::util::DeviceExt::create_buffer_init(
-        device,
-        &wgpu::util::BufferInitDescriptor {
-            label: Some("Camera Buffer"),
-            contents: bytemuck::cast_slice(&[camera_uniform]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        },
-    );
-
-    let camera_bind_group_layout =
-        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-            label: Some("camera_bind_group_layout"),
-        });
-
-    let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        layout: &camera_bind_group_layout,
-        entries: &[wgpu::BindGroupEntry {
-            binding: 0,
-            resource: camera_buffer.as_entire_binding(),
-        }],
-        label: Some("camera_bind_group"),
-    });
-
-    return (
-        camera,
-        camera_controller,
-        camera_uniform,
-        camera_buffer,
-        camera_bind_group,
-        camera_bind_group_layout,
-    );
-}
-
 fn create_raytrace_shader(
     device: &wgpu::Device,
     size: &PhysicalSize<u32>,
-    camera_bind_group_layout: BindGroupLayout,
+    camera_bind_group_layout: &BindGroupLayout,
 ) -> (
     wgpu::ComputePipeline,
     wgpu::BindGroup,
@@ -411,7 +340,7 @@ fn create_raytrace_shader(
 
     let raytrace_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Ray tracing Pipeline Layout"),
-        bind_group_layouts: &[&raytrace_bind_group_layout, &camera_bind_group_layout],
+        bind_group_layouts: &[&raytrace_bind_group_layout, camera_bind_group_layout],
         push_constant_ranges: &[],
     });
 
@@ -575,7 +504,7 @@ pub async fn run() {
                 ..
             } => {
                 if state.mouse_pressed {
-                    state.camera_controller.process_mouse(delta)
+                    state.camera.controller.process_mouse(delta)
                 }
             }
 
