@@ -26,16 +26,14 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID: vec3<u32>) {
 
     var ray = Ray(origin, direction);
     var lightDir = vec3<f32>(1.);
-    let dda = dda(ray);
-    let sphere = intersectSphere(ray, lightDir);
-    //if sphere.w > 0. { pixel_color = sphere.xyz; }
 
-    if dda.w == 1. { pixel_color = dda.xyz; }
+    let pixel = dda(ray, 8);
+    if pixel.w == 1. { pixel_color = pixel.rgb; }
 
     textureStore(color_buffer, screen_pos, vec4<f32>(pixel_color, 1.0));
 }
 
-fn dda(r: Ray) -> vec4<f32> {
+fn dda(r: Ray, scale: i32) -> vec4<f32> {
     var direction = normalize(r.direction);
     if direction.x == 0. { direction.x = 0.001; }
     if direction.y == 0. { direction.y = 0.001; }
@@ -45,16 +43,17 @@ fn dda(r: Ray) -> vec4<f32> {
     let rayPositivity = (1 + raySign) / 2;
     let rayInverse = 1. / direction;
 
-    var gridCoords = vec3<i32>(floor(r.origin));
-    var withinVoxelCoords = r.origin - vec3<f32>(gridCoords);
+    var gridCoords = vec3<i32>(floor(r.origin / f32(scale)));
+    var withinVoxelCoords = r.origin / f32(scale) - vec3<f32>(gridCoords);
 
     var i = 0;
-    while i < 32 {
-        if getVoxel(gridCoords) {
-            return vec4<f32>(vec3f(abs(gridCoords)) / 100., 1.0);
+    while i < 20 {
+        let t = (vec3f(rayPositivity) - withinVoxelCoords) * rayInverse;
+        if getVoxel(gridCoords, scale) {
+            let hit = dda_one(Ray((vec3<f32>(gridCoords) + withinVoxelCoords) * f32(scale), r.direction));
+            if hit.w == 1. { return hit; }
         }
 
-        let t = (vec3f(rayPositivity) - withinVoxelCoords) * rayInverse;
         var minIdx: i32;
         if t.x < t.y {
             if t.x < t.z {
@@ -76,42 +75,55 @@ fn dda(r: Ray) -> vec4<f32> {
     return vec4<i32>(0.);
 }
 
-fn getVoxel(c: vec3<i32>) -> bool {
-    //return abs(c.x) == abs(c.y) && abs(c.y) == abs(c.z);
-    //return c.x <= 10 && c.x >= 0 && c.y <= 10 && c.y >= 0 && c.z <= 10 && c.z >= 0;
-    return c.z == c.y * c.x;
-}
+fn dda_one(r: Ray) -> vec4<f32> {
+    var direction = normalize(r.direction);
+    if direction.x == 0. { direction.x = 0.001; }
+    if direction.y == 0. { direction.y = 0.001; }
+    if direction.z == 0. { direction.z = 0.001; }
 
-fn intersectSphere(ray: Ray, lightDir: vec3<f32>) -> vec4<f32> {
-    // (bx^2 + by^2)t^2 + (2(axbx + ayby))t + (ax^2 + ay^2 - r^2) = 0;
-    // where
-    // a -> ray origin
-    // b -> ray direction
-    // t -> ray distance
-    let radius = 1.5;
-    let origin = ray.origin - vec3<f32>(2., 3., 2.);
+    let raySign = vec3<i32>(sign(direction));
+    let rayPositivity = (1 + raySign) / 2;
+    let rayInverse = 1. / direction;
 
-    let a = dot(ray.direction, ray.direction);
-    let b = 2. * dot(origin, ray.direction);
-    let c = dot(origin, origin) - radius * radius;
+    var gridCoords = vec3<i32>(floor(r.origin));
+    var withinVoxelCoords = r.origin - vec3<f32>(gridCoords);
 
-    // Delta
-    let delta = b * b - 4. * a * c;
+    var i = 0;
+    while i < (3 * 8 - 1) { // 3n-1 for n = 8
+        if getVoxel(gridCoords, 1) {
+            return vec4<f32>(vec3f(abs(gridCoords)) / 100., 1.0);
+        }
 
-    if delta < 0. {
-        return vec4<f32>(0., 0., 0., 0.);
+        let t = (vec3<f32>(rayPositivity) - withinVoxelCoords) * rayInverse;
+        var minIdx: i32;
+        if t.x < t.y {
+            if t.x < t.z {
+                minIdx = 0;
+            } else { minIdx = 2;}
+        } else {
+            if t.y < t.z {
+                minIdx = 1;
+            } else {
+                minIdx = 2;
+            }
+        }
+
+        gridCoords[minIdx] += raySign[minIdx];
+        withinVoxelCoords += direction * t[minIdx];
+        withinVoxelCoords[minIdx] = 1. - f32(rayPositivity[minIdx]);
+        i++;
     }
-
-    let closestT = (-b - sqrt(delta)) / (2. * a);
-    if closestT <= 0. {return vec4<f32>(0.);}
-
-    let hitPoint = origin + ray.direction * closestT;
-    let normal = normalize(hitPoint);
-    let d = max(dot(normal, lightDir), 0.);
-
-    var sphereColor = vec3<f32>(1., 1., 1.);
-    sphereColor *= d;
-
-    return vec4<f32>(sphereColor, closestT);
+    return vec4<i32>(0.);
 }
 
+fn getVoxel(c: vec3<i32>, scale: i32) -> bool {
+    let s = 20 / scale;
+    let c = c - s * vec3<i32>(round(vec3<f32>(c) / f32(s)));
+    return df_sphere(c, scale) <= 0.;
+}
+
+fn df_sphere(c: vec3<i32>, scale: i32) -> f32 {
+    let p = vec3<f32>(0.);
+    let r = 8. / f32(scale);
+    return distance(vec3<f32>(c), p) - r;
+}

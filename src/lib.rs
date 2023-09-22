@@ -302,7 +302,7 @@ fn create_camera(
     wgpu::BindGroupLayout,
 ) {
     let camera = camera::Camera::new(Vector3::new(0.0, 2.0, -12.0), 45., 1., 100.);
-    let camera_controller = camera::CameraController::new(4.0, 1.0);
+    let camera_controller = camera::CameraController::new(10.0, 1.0);
 
     let camera_uniform = CameraUniform::new();
 
