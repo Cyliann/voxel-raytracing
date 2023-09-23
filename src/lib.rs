@@ -13,6 +13,7 @@ use winit::{
 use wasm_bindgen::prelude::*;
 
 mod camera;
+mod raytracing;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -52,8 +53,7 @@ struct State {
     window: Window,
     camera: camera::CameraPipeline,
     mouse_pressed: bool,
-    ray_tracing_pipeline: wgpu::ComputePipeline,
-    ray_tracing_bind_group: wgpu::BindGroup,
+    raytracing: raytracing::RaytracingPipeline,
 }
 
 impl State {
@@ -131,16 +131,16 @@ impl State {
 
         let camera = camera::CameraPipeline::new(&device);
 
-        let (ray_tracing_pipeline, ray_tracing_bind_group, sampler, color_buffer_view) =
-            create_raytrace_shader(&device, &size, &camera.bind_group_layout);
+        let raytracing =
+            raytracing::RaytracingPipeline::new(&device, &size, &camera.bind_group_layout);
 
         let (render_pipeline, render_bind_group) = create_render(
             &device,
             vert_shader,
             frag_shader,
             &config,
-            sampler,
-            color_buffer_view,
+            &raytracing.sampler,
+            &raytracing.texture,
         );
 
         Self {
@@ -154,8 +154,7 @@ impl State {
             window,
             camera,
             mouse_pressed: false,
-            ray_tracing_pipeline,
-            ray_tracing_bind_group,
+            raytracing,
         }
     }
 
@@ -239,8 +238,8 @@ impl State {
                 label: Some("Ray tracing pass"),
             });
 
-            ray_tracing_pass.set_pipeline(&self.ray_tracing_pipeline);
-            ray_tracing_pass.set_bind_group(0, &self.ray_tracing_bind_group, &[]);
+            ray_tracing_pass.set_pipeline(&self.raytracing.pipeline);
+            ray_tracing_pass.set_bind_group(0, &self.raytracing.bind_group, &[]);
             ray_tracing_pass.set_bind_group(1, &self.camera.bind_group, &[]);
             ray_tracing_pass.dispatch_workgroups(self.size.width / 8, self.size.height / 8, 1);
         }
@@ -278,94 +277,13 @@ impl State {
     }
 }
 
-fn create_raytrace_shader(
-    device: &wgpu::Device,
-    size: &PhysicalSize<u32>,
-    camera_bind_group_layout: &BindGroupLayout,
-) -> (
-    wgpu::ComputePipeline,
-    wgpu::BindGroup,
-    wgpu::Sampler,
-    wgpu::TextureView,
-) {
-    let raytrace_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("Ray tracing shader"),
-        source: wgpu::ShaderSource::Wgsl(include_str!("../assets/shaders/ray-tracing.wgsl").into()),
-    });
-
-    let color_buffer = device.create_texture(&wgpu::TextureDescriptor {
-        size: wgpu::Extent3d {
-            width: size.width,
-            height: size.height,
-            depth_or_array_layers: 1,
-        },
-        format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsages::COPY_DST
-            | wgpu::TextureUsages::STORAGE_BINDING
-            | wgpu::TextureUsages::TEXTURE_BINDING,
-        label: Some("Color buffer texture"),
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        view_formats: &[],
-    });
-
-    let color_buffer_view = color_buffer.create_view(&wgpu::TextureViewDescriptor::default());
-
-    let color_buffer_sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
-
-    let raytrace_bind_group_layout =
-        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::StorageTexture {
-                    access: wgpu::StorageTextureAccess::WriteOnly,
-                    format: wgpu::TextureFormat::Rgba8Unorm,
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                },
-                count: None,
-            }],
-            label: Some("color buffer bind group layout"),
-        });
-
-    let raytrace_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("Ray tracing bind group"),
-        layout: &raytrace_bind_group_layout,
-        entries: &[wgpu::BindGroupEntry {
-            binding: 0,
-            resource: wgpu::BindingResource::TextureView(&color_buffer_view),
-        }],
-    });
-
-    let raytrace_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("Ray tracing Pipeline Layout"),
-        bind_group_layouts: &[&raytrace_bind_group_layout, camera_bind_group_layout],
-        push_constant_ranges: &[],
-    });
-
-    let raytrace_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-        label: Some("Ray tracing pipeline"),
-        layout: Some(&raytrace_pipeline_layout),
-        module: &raytrace_shader,
-        entry_point: "main",
-    });
-
-    return (
-        raytrace_pipeline,
-        raytrace_bind_group,
-        color_buffer_sampler,
-        color_buffer_view,
-    );
-}
-
 fn create_render(
     device: &wgpu::Device,
     vert_shader: wgpu::ShaderModule,
     frag_shader: wgpu::ShaderModule,
     config: &wgpu::SurfaceConfiguration,
-    sampler: wgpu::Sampler,
-    color_buffer_view: wgpu::TextureView,
+    raytrace_sampler: &wgpu::Sampler,
+    raytrace_texture: &wgpu::TextureView,
 ) -> (wgpu::RenderPipeline, wgpu::BindGroup) {
     let render_bind_group_layout =
         device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -396,11 +314,11 @@ fn create_render(
         entries: &[
             wgpu::BindGroupEntry {
                 binding: 0,
-                resource: wgpu::BindingResource::Sampler(&sampler),
+                resource: wgpu::BindingResource::Sampler(raytrace_sampler),
             },
             wgpu::BindGroupEntry {
                 binding: 1,
-                resource: wgpu::BindingResource::TextureView(&color_buffer_view),
+                resource: wgpu::BindingResource::TextureView(raytrace_texture),
             },
         ],
     });
