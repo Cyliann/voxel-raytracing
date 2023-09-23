@@ -16,9 +16,7 @@ impl RaytracingPipeline {
     ) -> RaytracingPipeline {
         let raytrace_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Ray tracing shader"),
-            source: wgpu::ShaderSource::Wgsl(
-                include_str!("../assets/shaders/ray-tracing.wgsl").into(),
-            ),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/ray-tracing.wgsl").into()),
         });
 
         let color_buffer = device.create_texture(&wgpu::TextureDescriptor {
