@@ -2,8 +2,6 @@ use instant::Duration;
 use nalgebra::*;
 use winit::event::*;
 
-use crate::CameraUniform;
-
 #[rustfmt::skip]
 pub const OPENGL_TO_WGPU_MATRIX: nalgebra::Matrix4<f32> = nalgebra::Matrix4::new(
     1.0, 0.0, 0.0, 0.0,
@@ -56,6 +54,33 @@ impl Camera {
         let proj = Matrix4::new_perspective(aspect, self.fov, self.near_clip, self.far_clip);
 
         return Matrix4::try_inverse(proj).expect("Could not inverse projection matrix");
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct CameraUniform {
+    view_position: [f32; 4],
+    view: [[f32; 4]; 4],
+    proj: [[f32; 4]; 4],
+}
+
+impl CameraUniform {
+    fn new() -> Self {
+        Self {
+            view_position: [0.0; 4],
+            view: nalgebra::Matrix4::identity().into(),
+            proj: nalgebra::Matrix4::identity().into(),
+        }
+    }
+
+    fn update_view(&mut self, camera: &Camera) {
+        self.view_position = camera.position.to_homogeneous().into();
+        self.view = camera.calc_view().into();
+    }
+
+    pub fn update_proj(&mut self, camera: &Camera, width: u32, height: u32) {
+        self.proj = camera.calc_proj(width, height).into();
     }
 }
 

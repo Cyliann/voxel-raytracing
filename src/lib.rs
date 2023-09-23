@@ -13,33 +13,6 @@ mod camera;
 mod raytracing;
 mod render;
 
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct CameraUniform {
-    view_position: [f32; 4],
-    view: [[f32; 4]; 4],
-    proj: [[f32; 4]; 4],
-}
-
-impl CameraUniform {
-    fn new() -> Self {
-        Self {
-            view_position: [0.0; 4],
-            view: nalgebra::Matrix4::identity().into(),
-            proj: nalgebra::Matrix4::identity().into(),
-        }
-    }
-
-    fn update_view(&mut self, camera: &camera::Camera) {
-        self.view_position = camera.position.to_homogeneous().into();
-        self.view = camera.calc_view().into();
-    }
-
-    fn update_proj(&mut self, camera: &camera::Camera, width: u32, height: u32) {
-        self.proj = camera.calc_proj(width, height).into();
-    }
-}
-
 struct State {
     surface: wgpu::Surface,
     device: wgpu::Device,
