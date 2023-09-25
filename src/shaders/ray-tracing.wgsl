@@ -13,7 +13,7 @@ struct CameraUniform {
     proj: mat4x4<f32>
 };
 
-@compute @workgroup_size(8,8,1)
+@compute @workgroup_size(16,16,1)
 fn main(@builtin(global_invocation_id) GlobalInvocationID: vec3<u32>) {
     let screen_pos = vec2<i32>(GlobalInvocationID.xy);
     let screen_size = textureDimensions(color_buffer);
@@ -25,12 +25,22 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID: vec3<u32>) {
     var direction = (camera.view * vec4<f32>(normalize(targetPoint.xyz / targetPoint.w), 0.)).xyz;
 
     var ray = Ray(origin, direction);
-    var lightDir = vec3<f32>(1.);
 
-    let pixel = dda(ray, 8);
+    let pixel = raytrace(ray);
     if pixel.w == 1. { pixel_color = pixel.rgb; }
 
     textureStore(color_buffer, screen_pos, vec4<f32>(pixel_color, 1.0));
+}
+
+fn raytrace(ray: Ray) -> vec4<f32> {
+    var coord = vec4<f32>(ray.origin, 0.0);
+    var scale = 64;
+
+    for (var i = 0; i < 3; i++) {
+        coord = dda(Ray(coord.xyz, ray.direction), scale);
+        scale /= 8;
+    }
+    return vec4<f32>(vec3<f32>(coord.xyz) / 100., coord.w);
 }
 
 fn dda(r: Ray, scale: i32) -> vec4<f32> {
@@ -45,13 +55,13 @@ fn dda(r: Ray, scale: i32) -> vec4<f32> {
 
     var gridCoords = vec3<i32>(floor(r.origin / f32(scale)));
     var withinVoxelCoords = r.origin / f32(scale) - vec3<f32>(gridCoords);
+    let entryCoords = (gridCoords / scale) * scale; // get beginning of the chunk
 
     var i = 0;
-    while i < 20 {
+    while inChunk(gridCoords, entryCoords, scale) {
         let t = (vec3f(rayPositivity) - withinVoxelCoords) * rayInverse;
         if getVoxel(gridCoords, scale) {
-            let hit = dda_one(Ray((vec3<f32>(gridCoords) + withinVoxelCoords) * f32(scale), r.direction));
-            if hit.w == 1. { return hit; }
+            return vec4<f32>((vec3<f32>(gridCoords) + withinVoxelCoords) * f32(scale), 1.0);
         }
 
         var minIdx: i32;
@@ -72,54 +82,21 @@ fn dda(r: Ray, scale: i32) -> vec4<f32> {
         withinVoxelCoords[minIdx] = 1. - f32(rayPositivity[minIdx]);
         i++;
     }
-    return vec4<i32>(0.);
+    return vec4<f32>((vec3<f32>(gridCoords) + withinVoxelCoords) * f32(scale), 0.0);
 }
 
-fn dda_one(r: Ray) -> vec4<f32> {
-    var direction = normalize(r.direction);
-    if direction.x == 0. { direction.x = 0.001; }
-    if direction.y == 0. { direction.y = 0.001; }
-    if direction.z == 0. { direction.z = 0.001; }
+fn inChunk(coords: vec3<i32>, reference: vec3<i32>, scale: i32) -> bool {
+    let diff = abs(coords - reference);
 
-    let raySign = vec3<i32>(sign(direction));
-    let rayPositivity = (1 + raySign) / 2;
-    let rayInverse = 1. / direction;
-
-    var gridCoords = vec3<i32>(floor(r.origin));
-    var withinVoxelCoords = r.origin - vec3<f32>(gridCoords);
-
-    var i = 0;
-    while i < (3 * 8 - 1) { // 3n-1 for n = 8
-        if getVoxel(gridCoords, 1) {
-            return vec4<f32>(vec3f(abs(gridCoords)) / 100., 1.0);
-        }
-
-        let t = (vec3<f32>(rayPositivity) - withinVoxelCoords) * rayInverse;
-        var minIdx: i32;
-        if t.x < t.y {
-            if t.x < t.z {
-                minIdx = 0;
-            } else { minIdx = 2;}
-        } else {
-            if t.y < t.z {
-                minIdx = 1;
-            } else {
-                minIdx = 2;
-            }
-        }
-
-        gridCoords[minIdx] += raySign[minIdx];
-        withinVoxelCoords += direction * t[minIdx];
-        withinVoxelCoords[minIdx] = 1. - f32(rayPositivity[minIdx]);
-        i++;
-    }
-    return vec4<i32>(0.);
+    if diff.x > scale || diff.y > scale || diff.z > scale {return false; }
+    return true;
 }
 
 fn getVoxel(c: vec3<i32>, scale: i32) -> bool {
-    let s = 20 / scale;
-    let c = c - s * vec3<i32>(round(vec3<f32>(c) / f32(s)));
-    return df_sphere(c, scale) <= 0.;
+    //let s = 50 / scale;
+    //let c = c - s * vec3<i32>(round(vec3<f32>(c) / f32(s)));
+    //return df_sphere(c, scale) <= 0.;
+    return f32(c.y) < sin(f32(c.x) / 5.) * sin(f32(c.z) / 5.) * 5.;
 }
 
 fn df_sphere(c: vec3<i32>, scale: i32) -> f32 {

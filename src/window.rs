@@ -203,7 +203,7 @@ impl State {
             ray_tracing_pass.set_pipeline(&self.raytracing.pipeline);
             ray_tracing_pass.set_bind_group(0, &self.raytracing.bind_group, &[]);
             ray_tracing_pass.set_bind_group(1, &self.camera.bind_group, &[]);
-            ray_tracing_pass.dispatch_workgroups(self.size.width / 8, self.size.height / 8, 1);
+            ray_tracing_pass.dispatch_workgroups(self.size.width / 16, self.size.height / 16, 1);
         }
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {

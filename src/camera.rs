@@ -165,7 +165,7 @@ impl CameraController {
         let dt = dt.as_secs_f32();
 
         let up = Vector3::new(0., 1., 0.);
-        let forward = camera.direction;
+        let forward = Vector3::new(camera.direction.x, 0., camera.direction.z);
         let right = Matrix::cross(&up, &forward);
 
         // Move forward/backward and left/right
